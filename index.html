@@ -90,9 +90,17 @@
         <div class="h" style="font-weight:600;margin-bottom:12px;">Estado de las tareas</div>
         <canvas id="statusChart" height="220"></canvas>
       </div>
-      <div class="chart-card">
+      <div class="chart-card" style="margin-bottom:20px;">
         <div class="h" style="font-weight:600;margin-bottom:12px;">Cierres de tareas por responsable</div>
         <canvas id="closuresChart" height="220"></canvas>
+      </div>
+      <div class="chart-card" style="margin-bottom:20px;">
+        <div class="h" style="font-weight:600;margin-bottom:12px;">Tareas creadas vs. cerradas por responsable</div>
+        <canvas id="createdClosedChart" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="h" style="font-weight:600;margin-bottom:12px;">Tareas atrasadas por responsable</div>
+        <canvas id="overdueChart" height="220"></canvas>
       </div>
     </div>
   </div>
@@ -112,7 +120,7 @@ const CATEGORIES = ["Safety", "Security", "Calidad"];
 const STATUS_COLOR = { "Pendiente": "#7C8580", "En progreso": "#D98E3B", "Bloqueada": "#B5533C", "Cerrada": "#2F6F62" };
 let tasks = [];
 let currentView = "tasks";
-let statusChart, closuresChart;
+let statusChart, closuresChart, createdClosedChart, overdueChart;
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -252,6 +260,48 @@ function renderDashboard() {
     data: { labels: names, datasets: [{ label: "Tareas cerradas", data: names.map(n => map[n]), backgroundColor: "#2F6F62" }] },
     options: { indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { ticks: { precision: 0 } } } }
   });
+
+  // Creadas vs cerradas por responsable
+  const respNames = RESPONSIBLES.slice();
+  tasks.forEach(t => { if (t.responsible && !respNames.includes(t.responsible)) respNames.push(t.responsible); });
+  const createdCounts = respNames.map(n => tasks.filter(t => t.responsible === n).length);
+  const closedCounts = respNames.map(n => tasks.filter(t => t.responsible === n && t.status === "Cerrada").length);
+  if (createdClosedChart) createdClosedChart.destroy();
+  createdClosedChart = new Chart(document.getElementById("createdClosedChart"), {
+    type: "bar",
+    data: {
+      labels: respNames,
+      datasets: [
+        { label: "Tareas creadas", data: createdCounts, backgroundColor: "#D98E3B" },
+        { label: "Tareas cerradas", data: closedCounts, backgroundColor: "#2F6F62" }
+      ]
+    },
+    options: { indexAxis: "y", plugins: { legend: { position: "bottom" } }, scales: { x: { ticks: { precision: 0 } } } }
+  });
+
+  // Tareas atrasadas por responsable: fecha de cierre pasada y estado distinto de "Cerrada"
+  const todayStr = today();
+  const overdueMap = {};
+  respNames.forEach(n => { overdueMap[n] = 0; });
+  tasks.forEach(t => {
+    if (t.status !== "Cerrada" && t.endDate && t.endDate < todayStr) {
+      const key = t.responsible || "Sin asignar";
+      overdueMap[key] = (overdueMap[key] || 0) + 1;
+    }
+  });
+  const overdueNames = Object.keys(overdueMap).filter(n => overdueMap[n] > 0).sort((a,b) => overdueMap[b]-overdueMap[a]);
+  if (overdueChart) overdueChart.destroy();
+  if (overdueNames.length === 0) {
+    overdueChart = new Chart(document.getElementById("overdueChart"), {
+      type: "bar", data: { labels: [], datasets: [] }, options: {}
+    });
+  } else {
+    overdueChart = new Chart(document.getElementById("overdueChart"), {
+      type: "bar",
+      data: { labels: overdueNames, datasets: [{ label: "Tareas atrasadas", data: overdueNames.map(n => overdueMap[n]), backgroundColor: "#B5533C" }] },
+      options: { indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { ticks: { precision: 0 } } } }
+    });
+  }
 }
 
 function openForm(task) {
