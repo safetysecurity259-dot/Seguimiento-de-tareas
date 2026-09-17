@@ -237,14 +237,14 @@ function renderTasks() {
     const cards = colTasks.length === 0
       ? `<div class="kanban-empty">Sin tareas</div>`
       : colTasks.map(t => `
-        <div class="kanban-card" draggable="true" data-id="${t.id}" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)">
+        <div class="kanban-card" draggable="true" data-id="${t.id}" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)" onclick="openPreview('${t.id}')">
           <div class="title">${escapeHtml(t.title) || "(sin título)"}</div>
           ${t.description ? `<div class="desc">${escapeHtml(t.description)}</div>` : ""}
           <div class="meta">
             <span>${escapeHtml(t.responsible) || "Sin asignar"}${t.endDate ? " · " + t.endDate : ""}</span>
             <span class="meta-actions">
-              <button class="icon-btn" title="Editar" onclick='openForm(${JSON.stringify(t).replace(/'/g,"&#39;")})'>✎</button>
-              <button class="icon-btn" title="Eliminar" onclick="removeTask('${t.id}')" style="color:var(--rust);">🗑</button>
+              <button class="icon-btn" title="Editar" onclick='event.stopPropagation(); openForm(${JSON.stringify(t).replace(/'/g,"&#39;")})'>✎</button>
+              <button class="icon-btn" title="Eliminar" onclick="event.stopPropagation(); removeTask('${t.id}')" style="color:var(--rust);">🗑</button>
             </span>
           </div>
         </div>`).join("");
@@ -376,6 +376,40 @@ function renderDashboard() {
   }
 }
 
+function openPreview(id) {
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById("formModal").innerHTML = `
+    <div class="modal-bg" onclick="if(event.target===this) closeForm()">
+      <div class="modal">
+        <div class="row" style="margin-bottom:6px;align-items:flex-start;">
+          <div>
+            <div class="h" style="font-weight:700;font-size:18px;">${escapeHtml(t.title) || "(sin título)"}</div>
+            <div class="badge" style="background:${(STATUS_COLOR[t.status]||'#999')}22;color:${STATUS_COLOR[t.status]||'#999'};margin-top:6px;display:inline-block;">${escapeHtml(t.status)}</div>
+          </div>
+          <button class="icon-btn" onclick="closeForm()">✕</button>
+        </div>
+        <div style="margin-top:14px;">
+          <div style="font-size:12.5px;color:var(--slate);font-weight:500;margin-bottom:4px;">Descripción</div>
+          <div style="font-size:14px;white-space:pre-wrap;margin-bottom:14px;">${escapeHtml(t.description) || "Sin descripción."}</div>
+          <div class="field-row" style="margin-bottom:6px;">
+            <div><div style="font-size:12.5px;color:var(--slate);font-weight:500;">Categoría</div><div style="font-size:14px;">${escapeHtml(t.category) || "—"}</div></div>
+            <div><div style="font-size:12.5px;color:var(--slate);font-weight:500;">Responsable</div><div style="font-size:14px;">${escapeHtml(t.responsible) || "—"}</div></div>
+          </div>
+          <div class="field-row">
+            <div><div style="font-size:12.5px;color:var(--slate);font-weight:500;">Fecha inicio</div><div style="font-size:14px;">${t.startDate || "—"}</div></div>
+            <div><div style="font-size:12.5px;color:var(--slate);font-weight:500;">Fecha cierre</div><div style="font-size:14px;">${t.endDate || "—"}</div></div>
+          </div>
+          ${t.closedAt ? `<div style="margin-top:6px;"><div style="font-size:12.5px;color:var(--slate);font-weight:500;">Cerrada el</div><div style="font-size:14px;">${t.closedAt}</div></div>` : ""}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:18px;">
+          <button class="btn btn-primary" style="flex:1;justify-content:center;" onclick='openForm(${JSON.stringify(t).replace(/'/g,"&#39;")})'>Editar</button>
+          <button class="btn btn-ghost" style="flex:1;justify-content:center;" onclick="closeForm()">Cerrar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function openForm(task) {
   const t = task || { id: uid(), title: "", description: "", category: "", responsible: "", startDate: today(), endDate: "", status: "Pendiente", createdAt: today(), closedAt: "" };
   document.getElementById("formModal").innerHTML = `
@@ -403,7 +437,7 @@ function openForm(task) {
         </div>
         <div class="field-row">
           <div class="field"><label>Fecha inicio</label><input type="date" id="f-startDate" value="${t.startDate||''}"></div>
-          <div class="field"><label>Fecha cierre</label><input type="date" id="f-endDate" value="${t.endDate||''}"></div>
+          <div class="field"><label>Fecha cierre</label><input type="date" id="f-endDate" value="${t.endDate||''}" data-prev="${t.endDate||''}" onchange="handleEndDateChange(this)"></div>
         </div>
         <div class="field"><label>Estado</label>
           <select id="f-status" data-prev="${t.status}" onchange="handleStatusChange(this)">${STATUSES.map(s => `<option ${s===t.status?'selected':''}>${s}</option>`).join("")}</select>
@@ -425,6 +459,14 @@ function handleStatusChange(sel) {
     }
   }
   sel.dataset.prev = sel.value;
+}
+
+function handleEndDateChange(input) {
+  if (!checkPassword()) {
+    input.value = input.dataset.prev || "";
+    return;
+  }
+  input.dataset.prev = input.value;
 }
 
 async function submitForm(original) {
