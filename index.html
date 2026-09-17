@@ -52,6 +52,19 @@
   .field input, .field select, .field textarea { width:100%; }
   .field-row { display:flex; gap:10px; }
   .field-row .field { flex:1; }
+  .kanban { display:flex; gap:14px; align-items:flex-start; overflow-x:auto; padding-bottom:8px; }
+  .kanban-col { background:#EFE9DC; border-radius:10px; padding:10px; width:260px; flex-shrink:0; min-height:120px; }
+  .kanban-col.drag-over { outline:2px dashed var(--teal); outline-offset:-2px; }
+  .kanban-col-header { display:flex; align-items:center; gap:8px; font-weight:600; font-size:13.5px; padding:4px 6px 10px; }
+  .kanban-count { background:#fff; border-radius:20px; font-size:11.5px; padding:1px 8px; color:var(--slate); font-weight:600; }
+  .kanban-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; cursor:grab; }
+  .kanban-card:active { cursor:grabbing; }
+  .kanban-card.dragging { opacity:0.4; }
+  .kanban-card .title { font-weight:600; font-size:13.5px; margin-bottom:3px; }
+  .kanban-card .desc { font-size:12px; color:var(--ink); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kanban-card .meta { font-size:11.5px; color:var(--slate); display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .kanban-card .meta-actions { display:flex; gap:2px; }
+  .kanban-empty { font-size:12px; color:var(--slate); text-align:center; padding:14px 0; }
 </style>
 </head>
 <body>
@@ -75,13 +88,9 @@
         <div class="search-wrap">
           <input id="searchInput" placeholder="Buscar tarea, categoría o responsable" oninput="renderTasks()">
         </div>
-        <select id="filterStatus" onchange="renderTasks()" style="width:160px;">
-          <option>Todas</option>
-          <option>Pendiente</option><option>En progreso</option><option>Cancelada</option><option>Cerrada</option>
-        </select>
         <select id="filterResp" onchange="renderTasks()" style="width:180px;"><option>Todos</option></select>
       </div>
-      <div id="taskList"></div>
+      <div id="taskList" class="kanban"></div>
     </div>
     <div id="view-dashboard" style="display:none;">
       <h1 class="h" style="font-size:24px;font-weight:700;margin-bottom:20px;">Dashboard</h1>
@@ -215,34 +224,84 @@ function escapeHtml(s) { return String(s || "").replace(/[&<>"']/g, c => ({"&":"
 
 function renderTasks() {
   const search = document.getElementById("searchInput").value.toLowerCase();
-  const fStatus = document.getElementById("filterStatus").value;
   const fResp = document.getElementById("filterResp").value;
   const list = tasks.filter(t => {
-    if (fStatus !== "Todas" && t.status !== fStatus) return false;
     if (fResp !== "Todos" && t.responsible !== fResp) return false;
     if (search && !((t.title||"")+(t.category||"")+(t.responsible||"")).toLowerCase().includes(search)) return false;
     return true;
   });
   const el = document.getElementById("taskList");
-  if (list.length === 0) {
-    el.innerHTML = `<div class="empty">${tasks.length === 0 ? 'Aún no hay tareas. Crea la primera con "Nueva tarea".' : 'Ninguna tarea coincide con el filtro.'}</div>`;
-    return;
-  }
-  el.innerHTML = list.map(t => `
-    <div class="task-card">
-      <div class="dot" style="background:${STATUS_COLOR[t.status]||'#999'}"></div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:600;font-size:15px;">${escapeHtml(t.title) || "(sin título)"}</div>
-        ${t.description ? `<div style="font-size:13px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(t.description)}</div>` : ""}
-        <div style="font-size:12.5px;color:var(--slate);margin-top:2px;">
-          ${escapeHtml(t.category) || "Sin categoría"} · ${escapeHtml(t.responsible) || "Sin asignar"} · ${t.startDate || ""}${t.endDate ? " → " + t.endDate : ""}
+
+  el.innerHTML = STATUSES.map(status => {
+    const colTasks = list.filter(t => t.status === status);
+    const cards = colTasks.length === 0
+      ? `<div class="kanban-empty">Sin tareas</div>`
+      : colTasks.map(t => `
+        <div class="kanban-card" draggable="true" data-id="${t.id}" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)">
+          <div class="title">${escapeHtml(t.title) || "(sin título)"}</div>
+          ${t.description ? `<div class="desc">${escapeHtml(t.description)}</div>` : ""}
+          <div class="meta">
+            <span>${escapeHtml(t.responsible) || "Sin asignar"}${t.endDate ? " · " + t.endDate : ""}</span>
+            <span class="meta-actions">
+              <button class="icon-btn" title="Editar" onclick='openForm(${JSON.stringify(t).replace(/'/g,"&#39;")})'>✎</button>
+              <button class="icon-btn" title="Eliminar" onclick="removeTask('${t.id}')" style="color:var(--rust);">🗑</button>
+            </span>
+          </div>
+        </div>`).join("");
+    return `
+      <div class="kanban-col" data-status="${status}" ondragover="onColDragOver(event)" ondragleave="onColDragLeave(event)" ondrop="onColDrop(event)">
+        <div class="kanban-col-header">
+          <div class="dot" style="background:${STATUS_COLOR[status]}"></div>
+          <span>${status}</span>
+          <span class="kanban-count">${colTasks.length}</span>
         </div>
-      </div>
-      <div class="badge" style="background:${(STATUS_COLOR[t.status]||'#999')}22;color:${STATUS_COLOR[t.status]||'#999'}">${escapeHtml(t.status)}</div>
-      <button class="icon-btn" title="Editar" onclick='openForm(${JSON.stringify(t).replace(/'/g,"&#39;")})'>✎</button>
-      <button class="icon-btn" title="Eliminar" onclick="removeTask('${t.id}')" style="color:var(--rust);">🗑</button>
-    </div>
-  `).join("");
+        ${cards}
+      </div>`;
+  }).join("");
+
+  if (tasks.length === 0) {
+    el.innerHTML = `<div class="empty" style="width:100%;">Aún no hay tareas. Crea la primera con "Nueva tarea".</div>`;
+  }
+}
+
+let draggedTaskId = null;
+
+function onCardDragStart(ev) {
+  draggedTaskId = ev.currentTarget.dataset.id;
+  ev.currentTarget.classList.add("dragging");
+  ev.dataTransfer.effectAllowed = "move";
+}
+function onCardDragEnd(ev) {
+  ev.currentTarget.classList.remove("dragging");
+}
+function onColDragOver(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.add("drag-over");
+}
+function onColDragLeave(ev) {
+  ev.currentTarget.classList.remove("drag-over");
+}
+async function onColDrop(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove("drag-over");
+  const newStatus = ev.currentTarget.dataset.status;
+  if (!draggedTaskId) return;
+  await moveTaskStatus(draggedTaskId, newStatus);
+  draggedTaskId = null;
+}
+
+async function moveTaskStatus(id, newStatus) {
+  const task = tasks.find(t => t.id === id);
+  if (!task || task.status === newStatus) return;
+
+  if (newStatus === "Cancelada" && !checkPassword()) return;
+
+  task.status = newStatus;
+  task.closedAt = newStatus === "Cerrada" ? (task.closedAt || today()) : "";
+  renderTasks();
+  renderDashboard();
+  await saveTaskRemote(task);
+  loadTasks();
 }
 
 function renderDashboard() {
